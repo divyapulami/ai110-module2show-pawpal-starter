@@ -1,5 +1,6 @@
 from dataclasses import dataclass, field
-from typing import List, Optional
+from datetime import datetime, timedelta
+from typing import List, Optional, Tuple
 
 
 @dataclass
@@ -7,20 +8,41 @@ class Task:
     task_id: int
     title: str
     description: str
-    due_date: str
-    time: str
+    due_date: str  # format YYYY-MM-DD
+    time: str      # format HH:MM
     frequency: str
     completed: bool = False
 
-    def mark_complete(self) -> None:
-        """Mark this task as completed."""
+    def mark_complete(self) -> Tuple[bool, Optional["Task"]]:
+        """Mark this task as completed and create next occurrence when recurring."""
         self.completed = True
+
+        if self.frequency.lower() not in ("daily", "weekly"):
+            return True, None
+
+        try:
+            base_date = datetime.strptime(self.due_date, "%Y-%m-%d")
+        except ValueError:
+            return True, None
+
+        delta = timedelta(days=1 if self.frequency.lower() == "daily" else 7)
+        next_date = base_date + delta
+        next_task = Task(
+            task_id=self.task_id + 1,
+            title=self.title,
+            description=self.description,
+            due_date=next_date.strftime("%Y-%m-%d"),
+            time=self.time,
+            frequency=self.frequency,
+            completed=False,
+        )
+
+        return True, next_task
 
     def update_task(
         self,
         title: Optional[str] = None,
         description: Optional[str] = None,
-        due_date: Optional[str] = None,
         time: Optional[str] = None,
         frequency: Optional[str] = None,
         completed: Optional[bool] = None,
@@ -30,8 +52,6 @@ class Task:
             self.title = title
         if description is not None:
             self.description = description
-        if due_date is not None:
-            self.due_date = due_date
         if time is not None:
             self.time = time
         if frequency is not None:
@@ -112,6 +132,18 @@ class Scheduler:
         if pet is not None:
             pet.remove_task(task_id)
 
+    def complete_task(self, task_id: int, pet: Optional[Pet] = None) -> Optional[Task]:
+        """Mark task completed and optionally create the next recurring occurrence."""
+        task = next((t for t in self.tasks if t.task_id == task_id), None)
+        if task is None:
+            return None
+
+        _, next_task = task.mark_complete()
+
+        if next_task is not None:
+            self.add_task(next_task, pet=pet)
+        return next_task
+
     def get_tasks_for_today(self, date: str) -> List[Task]:
         """Return tasks with the matching due_date."""
         return [t for t in self.tasks if t.due_date == date]
@@ -120,6 +152,11 @@ class Scheduler:
         """Return the given pet's tasks as known by its own record."""
         return pet.get_tasks()
 
+    def sort_by_time(self, tasks: Optional[List[Task]] = None) -> List[Task]:
+        """Return tasks sorted by time (HH:MM) using a lambda key."""
+        target_tasks = tasks if tasks is not None else self.tasks
+        return sorted(target_tasks, key=lambda t: t.time)
+
     def get_pending_tasks(self) -> List[Task]:
         """Return tasks that are not completed."""
         return [t for t in self.tasks if not t.completed]
@@ -127,3 +164,34 @@ class Scheduler:
     def get_completed_tasks(self) -> List[Task]:
         """Return tasks that are completed."""
         return [t for t in self.tasks if t.completed]
+
+    def filter_by_completion(self, completed: bool) -> List[Task]:
+        """Filter tasks by completion status."""
+        return [t for t in self.tasks if t.completed == completed]
+
+    def detect_conflicts(self) -> List[str]:
+        """Return warnings for tasks that share the same date and time."""
+        clashes: dict[tuple[str, str], List[Task]] = {}
+        for task in self.tasks:
+            key = (task.due_date, task.time)
+            clashes.setdefault(key, []).append(task)
+
+        warnings: List[str] = []
+        for (due_date, time), tasks in clashes.items():
+            if len(tasks) > 1:
+                titles = ", ".join([t.title for t in tasks])
+                warnings.append(
+                    f"Conflict on {due_date} {time}: {len(tasks)} tasks ({titles})"
+                )
+
+        return warnings
+
+    def filter_by_pet_name(self, pet_name: str, owner: Optional[Owner] = None) -> List[Task]:
+        """Filter tasks by the pet name using owner data."""
+        if owner is None:
+            return []
+        matched_pets = [p for p in owner.get_pets() if p.name.lower() == pet_name.lower()]
+        tasks = []
+        for pet in matched_pets:
+            tasks.extend(pet.get_tasks())
+        return tasks

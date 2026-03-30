@@ -1,4 +1,22 @@
 import streamlit as st
+from pawpal_system import Owner, Pet, Task, Scheduler
+
+import streamlit as st
+from pawpal_system import Owner, Pet, Task, Scheduler
+
+# -- initialize persistent app state --------------------------------------------------
+if "owner_obj" not in st.session_state:
+    st.session_state.owner_obj = Owner(owner_id=1, name="Jordan")
+
+if "scheduler_obj" not in st.session_state:
+    st.session_state.scheduler_obj = Scheduler()
+
+# For convenience in this run:
+owner: Owner = st.session_state.owner_obj
+scheduler: Scheduler = st.session_state.scheduler_obj
+# ------------------------------------------------------------------------------------
+
+st.set_page_config(page_title="PawPal+", page_icon="🐾", layout="centered")
 
 st.set_page_config(page_title="PawPal+", page_icon="🐾", layout="centered")
 
@@ -39,9 +57,36 @@ At minimum, your system should:
 st.divider()
 
 st.subheader("Quick Demo Inputs (UI only)")
-owner_name = st.text_input("Owner name", value="Jordan")
-pet_name = st.text_input("Pet name", value="Mochi")
-species = st.selectbox("Species", ["dog", "cat", "other"])
+
+if "owner_obj" not in st.session_state:
+    st.session_state.owner_obj = Owner(owner_id=1, name="Jordan")
+
+owner = st.session_state.owner_obj
+
+with st.form("pet_form", clear_on_submit=True):
+    st.write("### Add a new pet")
+    owner_name = st.text_input("Owner name", value=owner.name)
+    pet_name = st.text_input("Pet name", value="Mochi")
+    species = st.selectbox("Species", ["dog", "cat", "other"])
+    breed = st.text_input("Breed", value="")
+    age = st.number_input("Age", min_value=0, max_value=30, value=1)
+
+    submitted = st.form_submit_button("Add Pet")
+
+    if submitted:
+        owner.name = owner_name or owner.name
+        next_pet_id = (max([p.pet_id for p in owner.pets]) + 1) if owner.pets else 101
+        new_pet = Pet(pet_id=next_pet_id, name=pet_name, species=species, breed=breed, age=int(age))
+        owner.add_pet(new_pet)
+        st.success(f"Pet '{new_pet.name}' added to owner '{owner.name}'")
+
+if owner.get_pets():
+    st.write("### Owner's Pets")
+    st.table(
+        [{"pet_id": p.pet_id, "name": p.name, "species": p.species, "breed": p.breed, "age": p.age} for p in owner.get_pets()]
+    )
+else:
+    st.info("No pets yet. Add one using the form above.")
 
 st.markdown("### Tasks")
 st.caption("Add a few tasks. In your final version, these should feed into your scheduler.")
